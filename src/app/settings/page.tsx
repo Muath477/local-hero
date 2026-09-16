@@ -1,9 +1,9 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
-import Chat from "@/components/Chat";
+import Settings from "@/components/Settings";
 
-export default async function Home() {
+export default async function SettingsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
-  return <Chat user={user} />;
+  return <Settings user={user} />;
 }

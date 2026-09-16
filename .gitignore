@@ -32,6 +32,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -39,3 +40,18 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Local Hero storage (translated files) + db
+storage/
+dev.db
+
+# agents/ (Python FastAPI service)
+agents/__pycache__/
+agents/**/__pycache__/
+*.pyc
+agents/.venv/
+agents/venv/
+agents/data/uploads/*
+!agents/data/uploads/.gitkeep
+agents/data/chroma/*
+!agents/data/chroma/.gitkeep
