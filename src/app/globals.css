@@ -1,9 +1,9 @@
 @import "tailwindcss";
 
 /* Brand palette, taken straight from LogoMark.tsx (navy #171e2e, red
-   #e23744) — same Claude-style layout/shape as before (rounded cards,
-   pill buttons, generous whitespace), but the identity is the logo's,
-   not a generic warm neutral. Dark is the primary mode (the logo's own
+   #e23744) — rounded cards, pill buttons, generous whitespace, but the
+   identity is the logo's, not a generic warm neutral. Dark is the
+   primary mode (the logo's own
    background IS the dark navy); light reuses the navy as ink instead of
    inventing an unrelated color. */
 :root {
@@ -63,8 +63,8 @@ body {
   pointer-events: none;
 }
 
-/* Claude's greeting heading uses a serif face against an otherwise sans
-   UI — same effect here, no web font download needed. */
+/* Serif face for the greeting heading against an otherwise sans UI —
+   no web font download needed. */
 .lh-greeting {
   font-family: ui-serif, Georgia, "Noto Naskh Arabic", "Times New Roman", serif;
   font-weight: 500;
