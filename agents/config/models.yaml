@@ -71,6 +71,16 @@ vision:
   fallback_tag: "llava:7b"       # higher quality, used only on "high" tier hardware
   fallback_tier: "high"
 
+council:
+  role: >-
+    multi-agent coordinator — breaks a compound request into parts and
+    delegates each part to a specialist agent (writer/coder/researcher)
+    via tool calls, then merges their answers
+  ollama_tag: "hf.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF:Q4_K_M"  # same tag as tool_caller —
+  est_ram_gb: 1.3                                             # already proven reliable at tool calling.
+  keep_alive: "5m"
+  context_window: 8192
+
 tarjuman:
   role: "document translation (.docx) — precision text task, not chat"
   # Measured, not assumed: the small Qwen models used everywhere else in

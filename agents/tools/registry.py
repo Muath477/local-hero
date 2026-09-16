@@ -72,4 +72,4 @@ def search_tools(query: str, top_k: int = 5) -> list[dict]:
 
 
 # Importing this module registers every built-in tool via their @tool decorators.
-from . import web_search, file_reader  # noqa: E402,F401
+from . import web_search, file_reader, agent_tools  # noqa: E402,F401

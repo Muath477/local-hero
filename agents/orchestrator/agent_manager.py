@@ -17,10 +17,17 @@ from pathlib import Path
 from . import ollama_client as ollama
 from .hardware import load_registry, resolve_tier
 from .memory import DocumentStore, UPLOADS_DIR
+from tools import agent_tools
 from tools.registry import get_tool, search_tools
 
 MAX_TOOL_ITERATIONS = 4
 TIER_ORDER = ["min", "std", "high"]
+
+# Roles that get a tool-calling loop instead of a single plain completion.
+# "council" is the only one that gets the ask_*_agent delegation tools —
+# see tools/agent_tools.py — real multi-agent collaboration, still one
+# Ollama call at a time (the hardware can't do concurrent models).
+TOOL_ROLES = {"tool_caller", "council"}
 
 SYSTEM_PROMPTS = {
     "writer_general": "أنت مساعد كتابة وتحليل عام. جاوب بإيجاز ودقة، وبنفس لغة المستخدم.",
@@ -32,6 +39,16 @@ SYSTEM_PROMPTS = {
                    "المناسبة فوراً، ولا تقل أبداً إنك لا تستطيع الوصول للإنترنت أو البحث. "
                    "لا تخترع نتائج أدوات لم تستدعها فعلاً.",
     "vision": "صف وحلل الصورة المعطاة بدقة وبإيجاز.",
+    "council": "أنت منسّق فريق من الوكلاء المختصين. مهمتك تفكيك الطلبات المركّبة "
+               "إلى أجزاء، وتوزيع كل جزء على الوكيل المناسب عبر أدوات "
+               "ask_writer_agent / ask_coder_agent / ask_researcher_agent بدل ما "
+               "تجاوب عليه بنفسك مباشرة. إذا كان الطلب بسيطاً وما يحتاج تخصصاً، "
+               "جاوب مباشرة بدون استدعاء أي وكيل. لا تكرر استدعاء نفس الوكيل لنفس الجزء.\n\n"
+               "بعد ما توصلك كل الردود اللازمة: ردّك الأخير للمستخدم لازم يتضمّن "
+               "محتوى كل رد رجعه أي وكيل استدعيته، كامل وبدون اختصار أو حذف — "
+               "لا تلخّص رد الوكيل ولا تستبدله برأيك، فقط رتّبه ونسّقه بعنوان واضح "
+               "لكل جزء (مثلاً '## الشرح' ثم '## الكود'). ردّ وكيل واحد فقط يعني "
+               "جزء واحد فقط بالإجابة النهائية —ممنوع تسقط أي جزء طلبه المستخدم.",
 }
 
 
@@ -42,6 +59,7 @@ class AgentManager:
         disabled = set(self.registry["tiers"][self.tier].get("disable_roles", []))
         self.disabled_roles = disabled
         self.documents = DocumentStore()
+        agent_tools.set_manager(self)
 
     def _model_for(self, role: str) -> dict:
         if role in self.disabled_roles:
@@ -73,8 +91,8 @@ class AgentManager:
         else:
             messages.append({"role": "user", "content": user_message})
 
-        if role == "tool_caller":
-            return self._run_with_tools(model_cfg, messages)
+        if role in TOOL_ROLES:
+            return self._run_with_tools(role, model_cfg, messages)
 
         result = ollama.chat(
             model=model_cfg["ollama_tag"],
@@ -131,7 +149,38 @@ class AgentManager:
             "Answer using only the context above. If it doesn't contain the answer, say so."
         )
 
-    def _run_with_tools(self, model_cfg: dict, messages: list[dict]) -> dict:
+    DELEGATE_LABELS = {
+        "ask_writer_agent": "الكاتب",
+        "ask_coder_agent": "المبرمج",
+        "ask_researcher_agent": "الباحث",
+    }
+
+    @classmethod
+    def _backfill_dropped_delegates(cls, content: str, trace: list[dict]) -> str:
+        """The council's coordinator model (1.5B) is asked to merge several
+        agents' replies into one answer. Measured unreliable at exactly
+        that: across repeated identical test requests it kept narrating
+        only the last delegate it called and silently dropping the others,
+        even with an explicit "don't drop any part" instruction in its
+        system prompt. Rather than keep trusting prompting alone against a
+        demonstrated small-model weakness, append any delegate reply whose
+        content doesn't show up in the model's own final text, so nothing a
+        specialist agent actually said gets lost.
+        """
+        appended = []
+        for step in trace:
+            label = cls.DELEGATE_LABELS.get(step["tool"])
+            if not label:
+                continue
+            output = str(step["output"])
+            fingerprint = output[:40].strip()
+            if fingerprint and fingerprint not in content:
+                appended.append(f"### رد وكيل {label}\n{output}")
+        if not appended:
+            return content
+        return content.rstrip() + "\n\n" + "\n\n".join(appended)
+
+    def _run_with_tools(self, role: str, model_cfg: dict, messages: list[dict]) -> dict:
         relevant_tools = search_tools(messages[-1]["content"])
         trace = []
 
@@ -147,7 +196,10 @@ class AgentManager:
 
             tool_calls = msg.get("tool_calls")
             if not tool_calls:
-                return {"role": "tool_caller", "content": msg["content"], "tool_trace": trace, "sources": []}
+                content = msg["content"]
+                if role == "council":
+                    content = self._backfill_dropped_delegates(content, trace)
+                return {"role": role, "content": content, "tool_trace": trace, "sources": []}
 
             for call in tool_calls:
                 name = call["function"]["name"]
@@ -168,7 +220,7 @@ class AgentManager:
                 messages.append({"role": "tool", "content": str(output)})
 
         return {
-            "role": "tool_caller",
+            "role": role,
             "content": "توقفت بعد عدة محاولات استخدام أدوات بدون إجابة نهائية.",
             "tool_trace": trace,
             "sources": [],

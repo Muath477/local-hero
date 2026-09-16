@@ -65,6 +65,11 @@ MODEL_CATALOG: dict[str, dict] = {
         "name": "الباحث والتنفيذ",
         "description": "بحث بالإنترنت وتنفيذ الأدوات",
     },
+    "council": {
+        "role": "council",
+        "name": "فريق الوكلاء",
+        "description": "يوزّع طلبك المركّب على عدة وكلاء مختصين ويجمع ردودهم",
+    },
 }
 
 app = FastAPI(title="Local AI Platform")
