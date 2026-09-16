@@ -55,3 +55,6 @@ agents/data/uploads/*
 !agents/data/uploads/.gitkeep
 agents/data/chroma/*
 !agents/data/chroma/.gitkeep
+
+# local AI-tool config, not part of the project
+CLAUDE.md
