@@ -87,7 +87,7 @@ docker compose up -d --build
 
 Brings up MySQL, the agents service, and the web app. Ollama itself stays on
 the host (`ollama serve`, plus whatever models `agents/config/models.yaml`
-expects pulled) — GPU passthrough for it isn't reliable in a Windows
+expects pulled — `python agents/scripts/install_models.py --yes` installs them) — GPU passthrough for it isn't reliable in a Windows
 container, so the `agents` container reaches out to `host.docker.internal:11434`
 instead of running its own copy.
 
@@ -137,12 +137,19 @@ prisma/
 agents/
   api/server.py           OpenAI-compatible-ish HTTP layer
   orchestrator/
-    router.py             message → agent role classification
-    agent_manager.py      role → model dispatch
+    router.py             message → agent role (embedding match, then a 4B model when unsure)
+    agent_manager.py      role → model dispatch, skills, tool loop, post-processing
+    skills.py             skills/*.md loader
+    postprocess.py        code punctuation fix, foreign-script repair
     memory.py             conversation memory + ChromaDB RAG store
     ollama_client.py       thin wrapper over Ollama's REST API
-  tools/                  file_reader, tarjuman, web_search, mcp_bridge
-  config/models.yaml      model registry per agent role
+  tools/                  registry, builtin_tools (calculator, time, files, translation, HF search),
+                          file_reader, tarjuman, web_search, mcp_bridge
+  skills/                 instruction files injected on demand
+  config/models.yaml      model registry per agent role, with the benchmark numbers behind each pick
+  config/tarjuman_glossary.yaml   standard document terms for Tarjuman
+  scripts/install_models.py       installs/verifies the models models.yaml needs
+  benchmarks/  tests/     model benchmarks, routing eval, end-to-end smoke test; pytest suite + live quality gate
 ```
 
 ## Stack

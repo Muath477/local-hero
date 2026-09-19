@@ -35,10 +35,15 @@ already-observed failure mode, not a hypothetical one.
 
 ```bash
 npx tsc --noEmit          # web app — must be zero errors before calling a change done
-cd agents && python -m py_compile api/server.py orchestrator/*.py tools/*.py
+cd agents && python -m pytest          # ~430 offline tests, ~30 s, no Ollama needed
 ```
 
-There is no Python test suite yet — for `agents/` logic changes, actually
+After changing a model tag, a prompt, a tool description or a skill, also run the live gate (needs Ollama and
+the models pulled; ~10 minutes on CPU): `cd agents && python -m pytest -m live`. It benchmarks each role's
+*configured* model against a minimum pass rate. `python -m benchmarks.smoke_e2e` runs real requests through
+router, agents, tools and skills and checks the content of the answers.
+
+The offline suite mocks Ollama, so it proves the plumbing, not the models — for `agents/` logic changes, actually
 call the endpoint (`ollama serve`, `uvicorn api.server:app --port 9099`,
 then `curl .../v1/chat/completions`) rather than trusting a code read. Small
 local models (0.5B–3B) are genuinely unreliable in ways that only show up
@@ -61,6 +66,12 @@ tweak fixed something like that — rerun the actual request.
   a hand-drawn SVG approximation of it; use the component as-is.
 - `agents/config/models.yaml` is the single source of truth for which
   Ollama model backs each role. Don't hardcode a model tag anywhere else.
+  Every pick there has its measured numbers in a comment (see `agents/benchmarks/RESULTS.md`); change a tag only
+  with a benchmark to justify it. `python agents/scripts/install_models.py` installs what the file needs.
+- Tools live in `agents/tools/` (`@tool`, with Arabic + English `keywords`), skills in `agents/skills/*.md`
+  (instructions injected only when their triggers match). Don't add a code-execution tool: a blocklist is not a sandbox.
+- Tarjuman never sends inline-formatting tags to the model (they made it mistranslate numbers); read
+  `agents/tools/tarjuman.py`'s docstring before changing how formatting is preserved.
 - Multi-agent delegation (`agents/tools/agent_tools.py`, the `council`
   role in `agent_manager.py`) is real: the `council` role gets
   `ask_writer_agent` / `ask_coder_agent` / `ask_researcher_agent` as tool

@@ -4,3 +4,9 @@ __pycache__
 *.pyc
 .git
 data
+tests
+benchmarks
+scripts
+.pytest_cache
+pytest.ini
+requirements-dev.txt

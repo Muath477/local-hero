@@ -58,3 +58,8 @@ agents/data/chroma/*
 
 # local AI-tool config, not part of the project
 CLAUDE.md
+agents/data/conversations/*
+agents/data/tarjuman_cache.json
+agents/benchmarks/results/
+agents/benchmarks/*.log
+agents/.pytest_cache/
