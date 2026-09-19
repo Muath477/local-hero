@@ -15,7 +15,16 @@ OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 
 
 def chat(model: str, messages: list[dict], keep_alive: str = "5m",
-         tools: list[dict] | None = None, temperature: float = 0.3) -> dict:
+         tools: list[dict] | None = None, temperature: float = 0.3,
+         think: bool | None = None, num_predict: int | None = None,
+         format: dict | str | None = None) -> dict:
+    """`think=False` switches off the hidden reasoning trace of hybrid
+    "thinking" models (Qwen3 etc.) — on CPU that trace costs minutes per
+    reply. Leave it None for models without a thinking mode: Ollama rejects
+    the flag for them. `num_predict` caps generated tokens (a runaway loop on
+    CPU costs minutes); `format` is Ollama's structured-output switch — "json"
+    or a JSON schema the reply is constrained to.
+    """
     payload = {
         "model": model,
         "messages": messages,
@@ -25,6 +34,12 @@ def chat(model: str, messages: list[dict], keep_alive: str = "5m",
     }
     if tools:
         payload["tools"] = tools
+    if think is not None:
+        payload["think"] = think
+    if num_predict is not None:
+        payload["options"]["num_predict"] = num_predict
+    if format is not None:
+        payload["format"] = format
     resp = requests.post(f"{OLLAMA_HOST}/api/chat", json=payload, timeout=300)
     resp.raise_for_status()
     return resp.json()

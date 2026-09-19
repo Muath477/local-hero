@@ -25,6 +25,9 @@ from .registry import tool
 if TYPE_CHECKING:
     from orchestrator.agent_manager import AgentManager
 
+# Only the council may delegate; every other role's tool pool excludes these.
+DELEGATE_TOOLS = ("ask_writer_agent", "ask_coder_agent", "ask_researcher_agent")
+
 _manager: "AgentManager | None" = None
 
 

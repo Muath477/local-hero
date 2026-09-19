@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import uuid
 from pathlib import Path
 
@@ -67,15 +68,44 @@ def _chunk_text(text: str) -> list[str]:
     while start < len(text):
         end = start + CHUNK_SIZE
         chunks.append(text[start:end])
+        if end >= len(text):
+            break  # otherwise the next pass emits a tail that's fully inside this chunk
         start = end - CHUNK_OVERLAP
     return [c.strip() for c in chunks if c.strip()]
+
+
+EMBED_BATCH = 32  # chunks per embedding request
+
+
+def _collection_name(embedder_tag: str) -> str:
+    # Vectors from different embedders have different sizes (nomic 768, Qwen3-Embedding 1024)
+    # and live in different spaces — mixing them in one collection breaks every query. One
+    # collection per embedder means switching models in models.yaml starts clean, and
+    # DocumentStore.reindex_missing() rebuilds it from the files still in data/uploads/.
+    return "documents__" + re.sub(r"[^A-Za-z0-9]+", "_", embedder_tag).strip("_")[:40]
 
 
 class DocumentStore:
     def __init__(self):
         self.client = chromadb.PersistentClient(path=str(CHROMA_DIR))
-        self.collection = self.client.get_or_create_collection("documents")
         self.embedder_tag = load_registry()["embedder"]["ollama_tag"]
+        self.collection = self.client.get_or_create_collection(_collection_name(self.embedder_tag))
+
+    def reindex_missing(self) -> list[str]:
+        """Indexes every uploaded file the current collection doesn't know yet
+        (after an embedder change, or files dropped into data/uploads by hand).
+        Unreadable files are skipped. Returns the filenames indexed."""
+        known = {m["source"] for m in self.collection.get(include=["metadatas"])["metadatas"]}
+        indexed = []
+        for path in sorted(UPLOADS_DIR.glob("*")) if UPLOADS_DIR.exists() else []:
+            if not path.is_file() or path.name.startswith(".") or path.name in known:
+                continue
+            try:
+                if self.ingest_file(path.name):
+                    indexed.append(path.name)
+            except ValueError:
+                pass  # not text we can read (an image, an archive, ...)
+        return indexed
 
     def ingest_file(self, filename: str) -> int:
         """Reads a file already sitting in data/uploads/, chunks it, embeds
@@ -95,7 +125,9 @@ class DocumentStore:
         # duplicating them.
         self.collection.delete(where={"source": filename})
 
-        embeddings = [ollama.embed(self.embedder_tag, chunk) for chunk in chunks]
+        embeddings = []
+        for i in range(0, len(chunks), EMBED_BATCH):  # one request per batch, not per chunk
+            embeddings += ollama.embed_batch(self.embedder_tag, chunks[i:i + EMBED_BATCH])
         ids = [f"{filename}::{i}::{uuid.uuid4().hex[:8]}" for i in range(len(chunks))]
         metadatas = [{"source": filename, "chunk_index": i} for i in range(len(chunks))]
 

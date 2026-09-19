@@ -17,10 +17,15 @@ from pathlib import Path
 from . import ollama_client as ollama
 from .hardware import load_registry, resolve_tier
 from .memory import DocumentStore, UPLOADS_DIR
+from .postprocess import REPAIR_PROMPT, fix_code_punctuation, leak_count, needs_script_repair
+from .skills import load_skills, match_skills, render as render_skills
 from tools import agent_tools
 from tools.registry import get_tool, search_tools
 
 MAX_TOOL_ITERATIONS = 4
+# Search/fetch tools can return 10k+ characters; the whole result is re-sent on every iteration and
+# an over-long prompt is silently truncated by the model server, so cap what the model sees.
+MAX_TOOL_OUTPUT_CHARS = 4000
 TIER_ORDER = ["min", "std", "high"]
 
 # Roles that get a tool-calling loop instead of a single plain completion.
@@ -28,19 +33,22 @@ TIER_ORDER = ["min", "std", "high"]
 # see tools/agent_tools.py — real multi-agent collaboration, still one
 # Ollama call at a time (the hardware can't do concurrent models).
 TOOL_ROLES = {"tool_caller", "council"}
+DELEGATE_TOOLS = agent_tools.DELEGATE_TOOLS
 
 SYSTEM_PROMPTS = {
-    "writer_general": "أنت مساعد كتابة وتحليل عام. جاوب بإيجاز ودقة، وبنفس لغة المستخدم.",
+    "writer_general": "أنت مساعد كتابة وتحليل عام. جاوب بإيجاز ودقة، وبنفس لغة المستخدم. "
+                      "اكتب الأرقام والمعادلات كنص عادي بدون LaTeX.",
     "coder": "أنت مبرمج خبير. اكتب كود صحيح وقابل للتشغيل مباشرة، مع شرح مختصر جداً إن لزم. "
              "ملاحظة: كلمة \"مضروب\" في سياق رياضي/برمجي (مثل \"مضروب رقم\" أو \"n المضروب\") "
-             "تعني factorial (n! = n×(n-1)×...×1) — وليس عكس الرقم أو ضربه بنفسه. مثال: "
+             "تعني factorial (n! = n*(n-1)*...*1) — وليس عكس الرقم أو ضربه بنفسه. مثال: "
              "\"دالة تحسب مضروب 5 بشكل عودي\" يعني factorial(5) = 120 عبر دالة تستدعي نفسها.",
     "researcher_rag": "أنت باحث يعتمد فقط على المحتوى المتاح له (ملفات مرفوعة). "
                        "إذا ما وجدت الجواب في المحتوى، قل ذلك صراحة بدل التخمين.",
     "tool_caller": "أنت وكيل تنفيذي. أنت تملك أدوات فعلية تصل للإنترنت وتقرأ الملفات — لست مقيداً "
                    "بمعرفتك السابقة. أي طلب فيه \"ابحث\" أو \"اجلب\" أو \"افتح رابط\" يعني استدعِ الأداة "
                    "المناسبة فوراً، ولا تقل أبداً إنك لا تستطيع الوصول للإنترنت أو البحث. "
-                   "لا تخترع نتائج أدوات لم تستدعها فعلاً.",
+                   "لا تخترع نتائج أدوات لم تستدعها فعلاً. اكتب الأرقام والمعادلات كنص عادي بدون LaTeX، "
+                   "وأجب بلغة المستخدم فقط دون كلمات من لغات أخرى.",
     "vision": "صف وحلل الصورة المعطاة بدقة وبإيجاز.",
     "council": "أنت منسّق فريق من الوكلاء المختصين. مهمتك تفكيك الطلبات المركّبة "
                "إلى أجزاء، وتوزيع كل جزء على الوكيل المناسب عبر أدوات "
@@ -62,6 +70,7 @@ class AgentManager:
         disabled = set(self.registry["tiers"][self.tier].get("disable_roles", []))
         self.disabled_roles = disabled
         self.documents = DocumentStore()
+        self.skills = load_skills()
         agent_tools.set_manager(self)
 
     def _model_for(self, role: str) -> dict:
@@ -84,7 +93,9 @@ class AgentManager:
 
     def run(self, role: str, user_message: str, history: list[dict] | None = None) -> dict:
         model_cfg = self._model_for(role)
-        messages = [{"role": "system", "content": SYSTEM_PROMPTS.get(role, "")}]
+        # Task-specific instructions (skills/*.md) join the system prompt only when the message calls for them.
+        matched = match_skills(self.skills, role, user_message)
+        messages = [{"role": "system", "content": SYSTEM_PROMPTS.get(role, "") + render_skills(matched)}]
         messages += history or []
 
         retrieved = []
@@ -95,19 +106,42 @@ class AgentManager:
             messages.append({"role": "user", "content": user_message})
 
         if role in TOOL_ROLES:
-            return self._run_with_tools(role, model_cfg, messages)
+            outcome = self._run_with_tools(role, model_cfg, messages)
+        else:
+            result = ollama.chat(
+                model=model_cfg["ollama_tag"],
+                messages=messages,
+                keep_alive=model_cfg["keep_alive"],
+                think=model_cfg.get("think"),
+            )
+            outcome = {
+                "role": role,
+                "content": result["message"]["content"],
+                "tool_trace": [],
+                "sources": [r["source"] for r in retrieved] if retrieved else [],
+            }
+            if role == "coder":
+                outcome["content"] = fix_code_punctuation(outcome["content"])
+        self._repair_script_leaks(user_message, outcome)
+        outcome["skills"] = [sk.name for sk in matched]
+        return outcome
 
-        result = ollama.chat(
-            model=model_cfg["ollama_tag"],
-            messages=messages,
-            keep_alive=model_cfg["keep_alive"],
-        )
-        return {
-            "role": role,
-            "content": result["message"]["content"],
-            "tool_trace": [],
-            "sources": [r["source"] for r in retrieved] if retrieved else [],
-        }
+    def _repair_script_leaks(self, user_message: str, outcome: dict) -> None:
+        """One targeted rewrite when an Arabic answer carries a stray foreign-script word.
+        Kept only if it actually has fewer leaked characters; costs a call only when a leak is found."""
+        text = outcome["content"]
+        if not needs_script_repair(user_message, text, outcome.get("tool_trace")):
+            return
+        repairer = self.registry["tarjuman"]  # the model that translates Arabic cleanly (8/8), not the one that leaked
+        fixed = ollama.chat(
+            model=repairer["ollama_tag"],
+            messages=[{"role": "system", "content": REPAIR_PROMPT}, {"role": "user", "content": text}],
+            keep_alive=repairer["keep_alive"], temperature=0.0, think=repairer.get("think"),
+            num_predict=min(3072, len(text) * 2 + 64),
+        )["message"]["content"].strip()
+        if fixed and leak_count(fixed) < leak_count(text):
+            outcome["content"] = fixed
+            outcome["script_repaired"] = True
 
     def run_vision(self, image_filename: str, question: str) -> dict:
         """Separate from run() because vision needs actual image bytes, not
@@ -132,6 +166,7 @@ class AgentManager:
             model=model_cfg["ollama_tag"],
             messages=messages,
             keep_alive=model_cfg["keep_alive"],
+            think=model_cfg.get("think"),
         )
         return {"role": "vision", "content": result["message"]["content"], "tool_trace": [], "sources": [image_filename]}
 
@@ -184,7 +219,11 @@ class AgentManager:
         return content.rstrip() + "\n\n" + "\n\n".join(appended)
 
     def _run_with_tools(self, role: str, model_cfg: dict, messages: list[dict]) -> dict:
-        relevant_tools = search_tools(messages[-1]["content"])
+        query = messages[-1]["content"]
+        if role == "council":
+            relevant_tools = search_tools(query, top_k=len(DELEGATE_TOOLS), only=DELEGATE_TOOLS)
+        else:
+            relevant_tools = search_tools(query, exclude=DELEGATE_TOOLS)  # delegation is the council's job alone
         trace = []
 
         for _ in range(MAX_TOOL_ITERATIONS):
@@ -193,6 +232,7 @@ class AgentManager:
                 messages=messages,
                 keep_alive=model_cfg["keep_alive"],
                 tools=relevant_tools,
+                think=model_cfg.get("think"),
             )
             msg = result["message"]
             messages.append(msg)
@@ -208,10 +248,16 @@ class AgentManager:
                 name = call["function"]["name"]
                 args = call["function"]["arguments"]
                 if isinstance(args, str):
-                    args = json.loads(args)
+                    try:
+                        args = json.loads(args)
+                    except json.JSONDecodeError:
+                        args = None  # small models sometimes emit broken JSON; tell them, don't crash
 
                 fn = get_tool(name)
-                if not fn:
+                if args is None:
+                    output = f"Error: arguments for '{name}' were not valid JSON — call it again with a JSON object."
+                    args = {}
+                elif not fn:
                     output = f"Error: unknown tool '{name}'"
                 else:
                     try:
@@ -220,7 +266,10 @@ class AgentManager:
                         output = f"Error running tool '{name}': {e}"
                 trace.append({"tool": name, "args": args, "output": output})
 
-                messages.append({"role": "tool", "content": str(output)})
+                shown = str(output)
+                if len(shown) > MAX_TOOL_OUTPUT_CHARS:
+                    shown = shown[:MAX_TOOL_OUTPUT_CHARS] + "\n...[output truncated]"
+                messages.append({"role": "tool", "content": shown})
 
         return {
             "role": role,

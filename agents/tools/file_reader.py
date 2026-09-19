@@ -17,7 +17,10 @@ from .registry import tool
 UPLOADS_DIR = Path(__file__).parent.parent / "data" / "uploads"
 
 
-@tool("Read the text content of a file the user uploaded (txt, md, pdf, or docx). Pass just the filename.")
+@tool(
+    "Read the text content of a file the user uploaded (txt, md, pdf, or docx). Pass just the filename.",
+    keywords=("اقرأ", "الملف", "ملف", "مرفق", "المرفق", "المستند", "file", "read", "pdf", "docx", "attached"),
+)
 def read_uploaded_file(filename: str) -> str:
     path = (UPLOADS_DIR / filename).resolve()
     if UPLOADS_DIR.resolve() not in path.parents and path != UPLOADS_DIR.resolve():

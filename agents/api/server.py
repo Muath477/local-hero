@@ -89,6 +89,7 @@ def _warm_up_router():
     # embedding calls (measured: over a minute on CPU) instead of the
     # server's own boot time absorbing that cost where nobody is waiting on it.
     router.warm_up()
+    manager.documents.reindex_missing()  # keeps RAG in step with data/uploads after an embedder change
     init_mcp_tools()  # connects config/mcp_servers.json, registers their tools
 
 
@@ -189,6 +190,7 @@ def chat_completions(req: ChatCompletionRequest):
         "x_router": decision,
         "x_tool_trace": result.get("tool_trace", []),
         "x_sources": result.get("sources", []),
+        "x_skills": result.get("skills", []),
     }
 
 
@@ -221,7 +223,8 @@ DOCX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingm
 
 
 @app.post("/tarjuman/translate")
-async def tarjuman_translate(file: UploadFile = File(...), target_language: str = Form(...)):
+async def tarjuman_translate(file: UploadFile = File(...), target_language: str = Form(...),
+                             glossary: str | None = Form(None)):
     """Contract fixed by LocalHero's src/app/api/translate/route.ts: multipart
     file + target_language in, raw translated .docx bytes out on success,
     {"error": {"message": ...}} JSON on failure. Paragraph-level translation
@@ -234,9 +237,19 @@ async def tarjuman_translate(file: UploadFile = File(...), target_language: str 
     if not file.filename.lower().endswith(".docx"):
         return JSONResponse(status_code=415, content={"error": {"message": "only .docx files are supported"}})
 
+    terms = None
+    if glossary:  # optional {"term": "required translation"} — enforced in the model prompt
+        try:
+            terms = json.loads(glossary)
+            if not isinstance(terms, dict):
+                raise ValueError
+        except ValueError:
+            return JSONResponse(status_code=400, content={"error": {"message": "glossary must be a JSON object {term: translation}"}})
+
     source_bytes = await file.read()
     try:
-        translated_bytes = translate_docx(source_bytes, target_language)
+        # A translation takes minutes on CPU — run it off the event loop so /health and chat stay responsive.
+        translated_bytes = await asyncio.to_thread(translate_docx, source_bytes, target_language, glossary=terms)
     except Exception as e:
         return JSONResponse(status_code=502, content={"error": {"message": f"translation failed: {e}"}})
 
@@ -248,11 +261,15 @@ async def upload_file(file: UploadFile = File(...)):
     """Not part of the OpenAI spec — this project's own endpoint for
     getting a file into data/uploads/ and indexed for RAG in one call.
     """
+    # The client controls file.filename verbatim ("../x", "a/../../x") — keep
+    # only the final path component so a write can never leave UPLOADS_DIR.
+    filename = Path(file.filename or "").name
+    if not filename:
+        raise HTTPException(400, "missing filename")
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-    dest = UPLOADS_DIR / file.filename
-    dest.write_bytes(await file.read())
+    (UPLOADS_DIR / filename).write_bytes(await file.read())
     try:
-        n_chunks = manager.documents.ingest_file(file.filename)
+        n_chunks = manager.documents.ingest_file(filename)
     except ValueError as e:
         raise HTTPException(400, str(e))
-    return {"filename": file.filename, "chunks_indexed": n_chunks}
+    return {"filename": filename, "chunks_indexed": n_chunks}

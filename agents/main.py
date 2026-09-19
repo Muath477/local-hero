@@ -31,6 +31,9 @@ def main():
 
     print("[router] تجهيز أولي (embedding للأمثلة)...")
     router.warm_up()
+    reindexed = manager.documents.reindex_missing()  # RAG stays in step with data/uploads
+    if reindexed:
+        print(f"[rag] reindexed: {', '.join(reindexed)}")
 
     mcp_status = init_mcp_tools()
     for server, outcome in mcp_status.items():
