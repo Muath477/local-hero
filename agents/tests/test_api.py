@@ -155,3 +155,10 @@ class TestUpload:
         client.post("/upload", files={"file": (evil, b"pwned")})
         assert not (tmp_path / "evil.txt").exists()
         assert not (server.UPLOADS_DIR.parent / "evil.txt").exists()
+
+
+def test_root_serves_the_standalone_chat_ui(client):
+    """agents/web/index.html is the single-file chat UI the agents service serves on `/`."""
+    r = client.get("/")
+    assert r.status_code == 200 and "text/html" in r.headers["content-type"]
+    assert 'dir="rtl"' in r.text and "fetch(" in r.text
