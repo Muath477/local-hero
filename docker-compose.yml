@@ -1,0 +1,58 @@
+services:
+  mysql:
+    image: mysql:8
+    container_name: local-hero-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: localhero_root_pw
+      MYSQL_DATABASE: localhero
+      MYSQL_USER: localhero
+      MYSQL_PASSWORD: localhero_pw
+    ports:
+      - "127.0.0.1:3306:3306"
+    volumes:
+      - localhero_mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "localhero", "-plocalhero_pw"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Router + agents + RAG + Tarjuman, the same FastAPI service LocalHero
+  # talks to at AGENTS_URL. Ollama itself stays on the host (GPU passthrough
+  # for it isn't reliable in a Windows container), so this container reaches
+  # out to host.docker.internal instead of its own loopback.
+  agents:
+    build:
+      context: ./agents
+    container_name: local-hero-agents
+    restart: unless-stopped
+    environment:
+      OLLAMA_HOST: http://host.docker.internal:11434
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./agents/data:/app/data
+    ports:
+      - "127.0.0.1:9199:9099"
+
+  localhero:
+    build:
+      context: .
+    container_name: local-hero-web
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: mysql://localhero:localhero_pw@mysql:3306/localhero
+      AGENTS_URL: http://agents:9099
+    depends_on:
+      mysql:
+        condition: service_healthy
+      agents:
+        condition: service_started
+    ports:
+      - "3000:3000"
+
+volumes:
+  localhero_mysql_data:

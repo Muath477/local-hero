@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "search": {
+      "command": "free-search-mcp",
+      "args": []
+    }
+  }
+}

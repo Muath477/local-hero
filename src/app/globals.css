@@ -1,0 +1,114 @@
+@import "tailwindcss";
+
+/* Brand palette, taken straight from LogoMark.tsx (navy #171e2e, red
+   #e23744) — rounded cards, pill buttons, generous whitespace, but the
+   identity is the logo's, not a generic warm neutral. Dark is the
+   primary mode (the logo's own
+   background IS the dark navy); light reuses the navy as ink instead of
+   inventing an unrelated color. */
+:root {
+  --navy: #f5f6f9;     /* app background */
+  --panel: #ffffff;    /* surfaces (sidebar, cards) */
+  --panel-2: #eceff5;  /* elevated / user bubble */
+  --line: #dde1ea;     /* borders */
+  --crimson: #e23744;  /* logo red */
+  --crimson-hover: #c92e3a;
+  --ink: #171e2e;      /* logo navy, reused as text */
+  --muted: #6b7280;    /* secondary text */
+}
+:root.dark {
+  --navy: #12151f;     /* app background — near the logo's own navy */
+  --panel: #171b26;    /* surfaces */
+  --panel-2: #232838;  /* elevated / user bubble */
+  --line: #2b3143;     /* borders */
+  --crimson: #e23744;  /* logo red, unchanged in both modes */
+  --crimson-hover: #f0525d;
+  --ink: #eef1f7;
+  --muted: #8891a3;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--navy);
+  color: var(--ink);
+  font-family: "Segoe UI", Tahoma, system-ui, sans-serif;
+}
+
+::selection {
+  background: rgba(226, 55, 68, 0.35);
+}
+
+/* Ambient red glow, anchored to the top-center of whatever it's applied
+   to — used behind the login panels and the chat empty-state so the brand
+   red reads as light in the room, not just an accent color. */
+.lh-glow {
+  position: relative;
+  isolation: isolate;
+}
+.lh-glow::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(ellipse 65% 45% at 50% 0%, rgba(226, 55, 68, 0.28), transparent 70%);
+  pointer-events: none;
+}
+
+/* Serif face for the greeting heading against an otherwise sans UI —
+   no web font download needed. */
+.lh-greeting {
+  font-family: ui-serif, Georgia, "Noto Naskh Arabic", "Times New Roman", serif;
+  font-weight: 500;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(226, 55, 68, 0.4);
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(226, 55, 68, 0.7);
+}
+
+/* Assistant markdown, styled like a clean chat reply */
+.prose-lh {
+  line-height: 1.75;
+  font-size: 15px;
+}
+.prose-lh > :first-child { margin-top: 0; }
+.prose-lh > :last-child { margin-bottom: 0; }
+.prose-lh p { margin: 0 0 0.85rem; }
+.prose-lh h1, .prose-lh h2, .prose-lh h3 { font-weight: 700; margin: 1.1rem 0 0.5rem; line-height: 1.3; }
+.prose-lh h1 { font-size: 1.4rem; }
+.prose-lh h2 { font-size: 1.2rem; }
+.prose-lh h3 { font-size: 1.05rem; }
+.prose-lh ul, .prose-lh ol { margin: 0 0 0.85rem; padding-inline-start: 1.5rem; }
+.prose-lh li { margin: 0.3rem 0; }
+.prose-lh a { color: var(--crimson-hover); text-decoration: underline; }
+.prose-lh strong { font-weight: 700; }
+.prose-lh code {
+  background: var(--navy); border: 1px solid var(--line); border-radius: 6px;
+  padding: 0.12rem 0.4rem; font-size: 0.88em;
+  font-family: "Cascadia Code", Consolas, monospace; direction: ltr;
+}
+.prose-lh pre {
+  background: var(--navy); border: 1px solid var(--line); border-radius: 12px;
+  padding: 1rem; overflow-x: auto; margin: 0 0 0.85rem; direction: ltr; text-align: left;
+}
+.prose-lh pre code { background: none; border: none; padding: 0; }
+.prose-lh blockquote { border-inline-start: 3px solid var(--crimson); padding-inline-start: 0.9rem; margin: 0 0 0.85rem; color: var(--muted); }
+.prose-lh table { border-collapse: collapse; margin: 0 0 0.85rem; display: block; overflow-x: auto; }
+.prose-lh th, .prose-lh td { border: 1px solid var(--line); padding: 0.4rem 0.7rem; }
+.prose-lh hr { border: none; border-top: 1px solid var(--line); margin: 1rem 0; }

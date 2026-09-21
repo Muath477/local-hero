@@ -1,0 +1,62 @@
+# Standard document terms per target language, used by Tarjuman (tools/tarjuman.py).
+#
+# - A segment that is EXACTLY one of these terms (case-insensitive, ignoring a trailing ":" or ".")
+#   is replaced directly, with no model call — small models get isolated labels wrong
+#   ("Confidential" came back as "مُخفي" = "hidden").
+# - A term inside a longer sentence is sent to the model as mandatory terminology.
+# - Terms passed with a request (POST /tarjuman/translate `glossary`) override these.
+#
+# Add your own company terms here. Keep entries unambiguous: one English term, one required translation.
+
+Arabic:
+  Confidential: سري
+  Strictly confidential: سري للغاية
+  Draft: مسودة
+  Final: نهائي
+  Page: صفحة
+  Page header: ترويسة الصفحة
+  Page footer: تذييل الصفحة
+  Header: ترويسة
+  Footer: تذييل
+  Table of contents: جدول المحتويات
+  Appendix: ملحق
+  Date: التاريخ
+  Signature: التوقيع
+  Name: الاسم
+  Address: العنوان
+  Phone: الهاتف
+  Email: البريد الإلكتروني
+  Company: الشركة
+  Description: الوصف
+  Item: البند
+  Quantity: الكمية
+  Price: السعر
+  Unit price: سعر الوحدة
+  Amount: المبلغ
+  Subtotal: المجموع الفرعي
+  Total: الإجمالي
+  Total amount: المبلغ الإجمالي
+  Invoice: فاتورة
+  Invoice number: رقم الفاتورة
+  Purchase order: أمر شراء
+  Payment terms: شروط الدفع
+  Terms and conditions: الشروط والأحكام
+  Agreement: الاتفاقية
+  Contract: العقد
+  Effective date: تاريخ السريان
+  Governing law: القانون الحاكم
+  Liability: المسؤولية
+  Termination: الإنهاء
+  Party: الطرف
+  Parties: الأطراف
+  First party: الطرف الأول
+  Second party: الطرف الثاني
+  Approved: معتمد
+  Rejected: مرفوض
+  Pending: قيد الانتظار
+  Notes: ملاحظات
+  Prepared by: أعدّه
+  Approved by: اعتمده
+  "Yes": نعم
+  "No": لا
+  N/A: غير منطبق

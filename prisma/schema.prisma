@@ -1,0 +1,63 @@
+// Local Hero — database schema (MySQL, local via Docker).
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// Role classification — see src/lib/permissions.ts for exactly what each
+// role can and can't do. An actual MySQL ENUM (not a loose string), so the
+// database itself rejects any value outside this set.
+enum Role {
+  user
+  admin
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String?
+  avatar       String?   @db.LongText // profile picture, stored as a data URL — can run well past 191 chars
+  passwordHash String? // null for accounts created via Google sign-in
+  googleId     String?   @unique
+  role         Role      @default(user)
+  disabled     Boolean   @default(false) // admin-suspended: blocks login and every API route immediately
+  createdAt    DateTime  @default(now())
+  lastSeenAt   DateTime? // touched by /api/heartbeat while a client tab is open
+  chats        Chat[]
+}
+
+model Chat {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String    @default("محادثة جديدة")
+  model     String    @default("general-assistant-plus")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  messages  Message[]
+}
+
+model Message {
+  id           String      @id @default(cuid())
+  chatId       String
+  chat         Chat        @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  role         String // "user" | "assistant"
+  content      String      @db.Text // MySQL's default String is VARCHAR(191) — too short for a chat message
+  attachmentId String?
+  attachment   Attachment? @relation(fields: [attachmentId], references: [id])
+  createdAt    DateTime    @default(now())
+}
+
+// A translated document produced by Tarjuman, downloadable from chat.
+model Attachment {
+  id        String    @id @default(cuid())
+  userId    String
+  name      String // display filename (e.g. contract.ar.docx)
+  path      String    @db.Text // absolute path — plenty of room, no practical reason to cap it
+  createdAt DateTime  @default(now())
+  messages  Message[]
+}
